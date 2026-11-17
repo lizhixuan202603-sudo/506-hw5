@@ -201,23 +201,21 @@ transformCI <- function(ci, f) {
 ### Design Choices and Implementation Notes
 
 As noted in the instructions, several design decisions were made to implement the `waldCI` class. Here is the rationale behind the choices:
-  
-  **1. What are you going to store in the class?**
-  I chose to store only `level`, `lb` (lower bound), and `ub` (upper bound) in the class slots. 
-While the constructor accepts either `(mean, sterr)` or `(lb, ub)`, storing the mean and standard error directly would introduce redundant state. If a user modifies the bounds via `lb<-` or `ub<-` setters, the stored `mean` and `sterr` would become out of sync unless manually recalculated. By storing only the bounds and the level, I ensure that the state is always consistent. The `mean` and `sterr` are implemented as **accessors** (derived properties) that calculate their values on the fly using the normal quantile `qnorm()`. 
+
+**1. What are you going to store in the class?**
+I chose to store only `level`, `lb` (lower bound), and `ub` (upper bound) in the class slots. While the constructor accepts either `(mean, sterr)` or `(lb, ub)`, storing the mean and standard error directly would introduce redundant state. If a user modifies the bounds via `lb<-` or `ub<-` setters, the stored `mean` and `sterr` would become out of sync unless manually recalculated. By storing only the bounds and the level, I ensure that the state is always consistent. The `mean` and `sterr` are implemented as **accessors** (derived properties) that calculate their values on the fly using the normal quantile `qnorm()`.
 
 **2. How are you going to store them (what object types)?**
-  All slots (`level`, `lb`, `ub`) are stored as `"numeric"`. This is the most natural object type for statistical parameters and allows for straightforward mathematical operations in the accessors and setters. I strictly enforce that they must be single, finite numeric values inside the validator.
+All slots (`level`, `lb`, `ub`) are stored as `"numeric"`. This is the most natural object type for statistical parameters and allows for straightforward mathematical operations in the accessors and setters. I strictly enforce that they must be single, finite numeric values inside the validator.
 
 **3. How are you going to enforce the function in `transform` being monotonic?**
-  It is mathematically impossible for a program to automatically test if an arbitrary R function (like a user-defined closure) is monotonic without evaluating it infinitely. Therefore, as the problem instructed, `transformCI` emits a `warning` to remind the user. 
-To prevent non-monotonic or decreasing functions (e.g., `f(x) = -x`) from breaking the class's `lb <= ub` invariant, I implemented the function to apply `f()` to both bounds and then wrap the result in `sort()`. This guarantees that the newly generated lower and upper bounds remain in the correct order, and then I pass them to my custom constructor to re-validate the object.
+It is mathematically impossible for a program to automatically test if an arbitrary R function (like a user-defined closure) is monotonic without evaluating it infinitely. Therefore, as the problem instructed, `transformCI` emits a `warning` to remind the user. To prevent non-monotonic or decreasing functions (e.g., `f(x) = -x`) from breaking the class's `lb <= ub` invariant, I implemented the function to apply `f()` to both bounds and then wrap the result in `sort()`. This guarantees that the newly generated lower and upper bounds remain in the correct order, and then I pass them to my custom constructor to re-validate the object.
 
 **4. Other choices (Hint Usage)**
-As suggested by the hint, I defined a custom constructor `create_waldCI()` rather than calling `new()` directly in the global environment. This encapsulates the logic of calculating bounds from mean/sterr and ensures that `new()` is only called on fully validated inputs. I also did not use any existing packages (such as `CIr` or `epitools`) to check for overlaps or construct intervals; the `contains` and `overlap` methods use basic logical operators.
+As suggested by the hint, I defined a custom constructor **`wald_ci()`** rather than calling `new()` directly in the global environment. This encapsulates the logic of calculating bounds from mean/sterr and ensures that `new()` is only called on fully validated inputs. I also did not use any existing packages (such as `CIr` or `epitools`) to check for overlaps or construct intervals; the `contains` and `overlap` methods use basic logical operators.
 
-###Source 
-I utilized the RStudio S4 documentation and online discussions regarding setGeneric and .Primitive functions to correctly implement the as.numeric method
+### Source
+I utilized the RStudio S4 documentation and online discussions regarding `setGeneric` and `.Primitive` functions to correctly implement the `as.numeric` method.
 
 
 ### b. Use waldCI class to create three objects and evaluate the code
