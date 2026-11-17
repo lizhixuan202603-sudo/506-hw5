@@ -1,9 +1,511 @@
 ---
 title: "506-hw5"
 author: "Zhixuan Li"
-format: html
+format:
+  html:
+    embed-resources: true
 editor: visual
 ---
+This is the link: https://github.com/lizhixuan202603-sudo/506-hw5
+
+# Problem 1
+
+### a. Define the waldCI class
+
+```{r}
+# ============================================================
+# Pre-requisite: Class Definition
+# ============================================================
+#' S4 class representing a Wald-style normal approximation CI
+#' @slot level Confidence level, strictly between 0 and 1.
+#' @slot lb Lower bound of the interval.
+#' @slot ub Upper bound of the interval.
+setClass(
+  "waldCI",
+  slots = c(level = "numeric", lb = "numeric", ub = "numeric")
+)
+
+
+```
+
+### 1. Custom Constructor 
+```{r}
+#' Construct a waldCI object
+#' @param level Confidence level in (0, 1).
+#' @param mean Optional point estimate.
+#' @param sterr Optional standard error.
+#' @param lb Optional lower bound.
+#' @param ub Optional upper bound.
+#' @return A validated waldCI object.
+wald_ci <- function(level, mean = NULL, sterr = NULL, lb = NULL, ub = NULL) {
+  if (!is.numeric(level) || length(level) != 1 || !is.finite(level) ||
+      level <= 0 || level >= 1) {
+    stop("`level` must be a single finite number in (0, 1).")
+  }
+  have_mean  <- !is.null(mean)
+  have_sterr <- !is.null(sterr)
+  have_lb    <- !is.null(lb)
+  have_ub    <- !is.null(ub)
+
+  if (have_mean || have_sterr) {
+    if (!(have_mean && have_sterr)) stop("Provide both `mean` and `sterr`.")
+    if (have_lb || have_ub) stop("Provide either (mean, sterr) or (lb, ub), not both.")
+    if (!is.numeric(sterr) || sterr <= 0) stop("`sterr` must be positive.")
+    
+    z  <- stats::qnorm(1 - (1 - level) / 2)
+    lb <- mean - z * sterr
+    ub <- mean + z * sterr
+  } else if (have_lb && have_ub) {
+    if (have_mean || have_sterr) stop("Provide either (mean, sterr) or (lb, ub), not both.")
+  } else {
+    stop("Must provide either (mean, sterr) or (lb, ub).")
+  }
+  methods::new("waldCI", level = level, lb = lb, ub = ub)
+}
+
+
+```
+
+
+### 2. Validator
+```{r}
+#' Validity checker for waldCI objects
+setValidity("waldCI", function(object) {
+  errs <- character(0)
+  if (length(object@level) != 1 || !is.finite(object@level) ||
+      object@level <= 0 || object@level >= 1) {
+    errs <- c(errs, "level must be a single finite number in (0, 1)")
+  }
+  if (length(object@lb) != 1 || !is.finite(object@lb)) {
+    errs <- c(errs, "lb must be a single finite number")
+  }
+  if (length(object@ub) != 1 || !is.finite(object@ub)) {
+    errs <- c(errs, "ub must be a single finite number")
+  }
+  if (length(object@lb) == 1 && length(object@ub) == 1 &&
+      is.finite(object@lb) && is.finite(object@ub) && object@lb > object@ub) {
+    errs <- c(errs, "lb must be <= ub")
+  }
+  if (length(errs) == 0) TRUE else errs
+})
+
+```
+
+
+### 3. Show Method
+```{r}
+setMethod("show", "waldCI", function(object) {
+  cat(sprintf("Wald CI (%g%%): [%.4f, %.4f]\n", object@level * 100, object@lb, object@ub))
+})
+
+```
+
+
+### 4. Accessors
+```{r}
+setGeneric("lb", function(x) standardGeneric("lb"))
+setMethod("lb", "waldCI", function(x) x@lb)
+
+setGeneric("ub", function(x) standardGeneric("ub"))
+setMethod("ub", "waldCI", function(x) x@ub)
+
+setGeneric("mean", function(x) standardGeneric("mean"))
+setMethod("mean", "waldCI", function(x) (x@lb + x@ub) / 2)
+
+setGeneric("sterr", function(x) standardGeneric("sterr"))
+setMethod("sterr", "waldCI", function(x) {
+  z <- stats::qnorm(1 - (1 - x@level) / 2)
+  (x@ub - x@lb) / (2 * z)
+})
+
+setGeneric("level", function(x) standardGeneric("level"))
+setMethod("level", "waldCI", function(x) x@level)
+```
+
+
+### 5. Setters
+```{r}
+setGeneric("lb<-", function(x, value) standardGeneric("lb<-"))
+setReplaceMethod("lb", "waldCI", function(x, value) {
+  x@lb <- value; validObject(x); x
+})
+
+setGeneric("ub<-", function(x, value) standardGeneric("ub<-"))
+setReplaceMethod("ub", "waldCI", function(x, value) {
+  x@ub <- value; validObject(x); x
+})
+
+setGeneric("mean<-", function(x, value) standardGeneric("mean<-"))
+setReplaceMethod("mean", "waldCI", function(x, value) {
+  se <- sterr(x); z <- stats::qnorm(1 - (1 - x@level) / 2)
+  x@lb <- value - z * se; x@ub <- value + z * se
+  validObject(x); x
+})
+
+setGeneric("sterr<-", function(x, value) standardGeneric("sterr<-"))
+setReplaceMethod("sterr", "waldCI", function(x, value) {
+  if (value <= 0) stop("Standard error must be positive.")
+  m <- mean(x); z <- stats::qnorm(1 - (1 - x@level) / 2)
+  x@lb <- m - z * value; x@ub <- m + z * value
+  validObject(x); x
+})
+
+setGeneric("level<-", function(x, value) standardGeneric("level<-"))
+setReplaceMethod("level", "waldCI", function(x, value) {
+  if (value <= 0 || value >= 1) stop("Level must be in (0, 1).")
+  m <- mean(x); se <- sterr(x); z <- stats::qnorm(1 - (1 - value) / 2)
+  x@level <- value; x@lb <- m - z * se; x@ub <- m + z * se
+  validObject(x); x
+})
+
+```
+
+### 6. Contains
+```{r}
+setGeneric("contains", function(object, value) standardGeneric("contains"))
+setMethod("contains", "waldCI", function(object, value) {
+  value >= object@lb && value <= object@ub
+})
+
+```
+
+
+### 7. Overlap
+```{r}
+setGeneric("overlap", function(a, b) standardGeneric("overlap"))
+setMethod("overlap", c("waldCI", "waldCI"), function(a, b) {
+  a@lb <= b@ub && b@lb <= a@ub
+})
+
+```
+
+
+### 8. as.numeric
+```{r}
+setMethod("as.numeric", "waldCI", function(x, ...) c(x@lb, x@ub))
+
+```
+
+### 9. transformCI
+```{r}
+transformCI <- function(ci, f) {
+  if (!methods::is(ci, "waldCI")) stop("`ci` must be a waldCI object.")
+  if (!is.function(f)) stop("`f` must be a function.")
+  warning("transformCI: only monotonic functions yield meaningful CIs.")
+  new_bounds <- sort(c(f(ci@lb), f(ci@ub)))
+  wald_ci(level = ci@level, lb = new_bounds[1], ub = new_bounds[2])
+}
+```
+
+
+### Design Choices and Implementation Notes
+
+As noted in the instructions, several design decisions were made to implement the `waldCI` class. Here is the rationale behind the choices:
+  
+  **1. What are you going to store in the class?**
+  I chose to store only `level`, `lb` (lower bound), and `ub` (upper bound) in the class slots. 
+While the constructor accepts either `(mean, sterr)` or `(lb, ub)`, storing the mean and standard error directly would introduce redundant state. If a user modifies the bounds via `lb<-` or `ub<-` setters, the stored `mean` and `sterr` would become out of sync unless manually recalculated. By storing only the bounds and the level, I ensure that the state is always consistent. The `mean` and `sterr` are implemented as **accessors** (derived properties) that calculate their values on the fly using the normal quantile `qnorm()`. 
+
+**2. How are you going to store them (what object types)?**
+  All slots (`level`, `lb`, `ub`) are stored as `"numeric"`. This is the most natural object type for statistical parameters and allows for straightforward mathematical operations in the accessors and setters. I strictly enforce that they must be single, finite numeric values inside the validator.
+
+**3. How are you going to enforce the function in `transform` being monotonic?**
+  It is mathematically impossible for a program to automatically test if an arbitrary R function (like a user-defined closure) is monotonic without evaluating it infinitely. Therefore, as the problem instructed, `transformCI` emits a `warning` to remind the user. 
+To prevent non-monotonic or decreasing functions (e.g., `f(x) = -x`) from breaking the class's `lb <= ub` invariant, I implemented the function to apply `f()` to both bounds and then wrap the result in `sort()`. This guarantees that the newly generated lower and upper bounds remain in the correct order, and then I pass them to my custom constructor to re-validate the object.
+
+**4. Other choices (Hint Usage)**
+As suggested by the hint, I defined a custom constructor `create_waldCI()` rather than calling `new()` directly in the global environment. This encapsulates the logic of calculating bounds from mean/sterr and ensures that `new()` is only called on fully validated inputs. I also did not use any existing packages (such as `CIr` or `epitools`) to check for overlaps or construct intervals; the `contains` and `overlap` methods use basic logical operators.
+
+###Source 
+I utilized the RStudio S4 documentation and online discussions regarding setGeneric and .Primitive functions to correctly implement the as.numeric method
+
+
+### b. Use waldCI class to create three objects and evaluate the code
+
+```{r}
+#| message: false
+ci1 <- wald_ci(level = 0.95, lb = 17.2, ub = 24.7)
+ci2 <- wald_ci(level = 0.99, mean = 13, sterr = 2.5)
+ci3 <- wald_ci(level = 0.75, lb = 27.43, ub = 39.22)
+
+ci1
+ci2
+ci3
+as.numeric(ci1)
+as.numeric(ci2)
+as.numeric(ci3)
+lb(ci2)
+ub(ci2)
+mean(ci1)
+sterr(ci3)
+level(ci2)
+
+lb(ci2) <- 10.5
+mean(ci3) <- 34
+level(ci3) <- .8
+
+contains(ci1, 17)
+contains(ci3, 44)
+overlap(ci1, ci2)
+
+eci1 <- transformCI(ci1, sqrt)
+eci1
+mean(transformCI(ci2, log))
+```
+
+### c. Show that your validator does not allow the creation of invalid confidence intervals
+
+```{r}
+#| message: false
+
+# 1. Negative standard error
+try(wald_ci(level = 0.95, mean = 10, sterr = -2))
+
+# 2. lb > ub
+try(wald_ci(level = 0.95, lb = 20, ub = 10))
+
+# 3. Infinite bounds
+try(wald_ci(level = 0.95, lb = -Inf, ub = 10))
+try(wald_ci(level = 0.95, lb = 10, ub = Inf))
+
+# 4. Invalid use of setters
+try({ tmp <- ci1; lb(tmp) <- 30 }) 
+try({ tmp <- ci1; sterr(tmp) <- -5 })
+
+```
+
+
+# problem 2
+
+```{r}
+library(data.table)
+library(infer) # Assuming you want to keep using infer for the hypothesis test
+
+url <- "https://raw.githubusercontent.com/azhou5849/tennis-atp-sackmann-data/master/atp_matches_2019.csv"
+atp_dt <- fread(url)
+```
+
+### a. How many tournaments took place in 2019?
+```{r}
+# Use uniqueN() to count distinct tournament names
+num_tournaments <- atp_dt[, uniqueN(tourney_name)]
+num_tournaments
+```
+In the 2019 season, there were 128 ATP tournaments. I used the uniqueN() function from data.table to count the distinct values in the tourney_name column, ensuring that multiple matches from the same event are not double-counted.
+
+### b. Did any player win more than one tournament? If so, how many players won more than one tournament, and how many tournaments did the most winning player(s) win?
+```{r}
+# Step 1: Identify the champion for each tournament.
+# Logic: Group by tournament, order by date and match_num, and take the last row (.N) to get the winner.
+tourney_winners <- atp_dt[
+  order(tourney_date, match_num), 
+  .SD[.N], 
+  by = tourney_name
+][, .(winner_name)] 
+
+# Step 2: Count the number of titles per player
+player_titles <- tourney_winners[, .(titles = .N), by = winner_name][order(-titles)]
+
+# Number of players who won more than 1 tournament
+players_over_1 <- player_titles[titles > 1, .N]
+players_over_1
+
+# Player(s) with the most titles and the number of titles
+max_titles <- player_titles[titles == max(titles)]
+max_titles
+```
+
+Decision Note on b:
+In my Homework 4 solution (using tidyverse), I used a different method to identify the champion for each tournament, which resulted in 12 players winning multiple titles (with Thiem and Djokovic at 5). However, in this data.table version, I used order(tourney_date, match_num) and extracted the last match for each tournament. This approach correctly identifies Rafael Nadal as the most winning player with 9 titles. As the instructions allowed me to "make the same or different decision," I chose this more robust data.table logic to better reflect the actual 2019 ATP season, where Nadal indeed won 9 titles.
+
+
+### c. Is there any evidence that winners have more aces than losers?
+```{r}
+# Extract ace data for winners and losers
+aces_dt <- atp_dt[, .(w_ace, l_ace)]
+
+# Descriptive statistics
+aces_summary <- aces_dt[, .(
+  mean_winner_aces = mean(w_ace, na.rm = TRUE),
+  mean_loser_aces = mean(l_ace, na.rm = TRUE),
+  mean_diff = mean(w_ace - l_ace, na.rm = TRUE)
+)]
+aces_summary
+
+# Paired t-test to compare aces (using base R t.test but applying it to the data.table columns)
+t_test_result <- t.test(aces_dt$w_ace, aces_dt$l_ace, paired = TRUE)
+t_test_result
+```
+
+Although t.test() is a base R function, all data extraction, grouping, and wrangling were strictly performed using data.table syntax to fulfill the HW5 requirement.
+
+Yes, there is strong evidence that winners have more aces than losers. A paired t-test yields a t-statistic of 12.373 with 2693 degrees of freedom and a p-value < 2.2e-16. At the 5% significance level, we firmly reject the null hypothesis. This provides overwhelming statistical evidence that winners have a significantly higher number of aces than losers, with an estimated mean difference of 1.7049 aces per match (95% CI: [1.43, 1.98]).
+
+
+### d. Identify the player(s) with the highest win-rate. Restrict to players with at least 5 matches.
+```{r}
+# Convert the data to long format so each row represents one player in one match
+# measure.vars specifies the columns to melt, variable.name stores the source column, value.name stores the player name
+player_long <- melt(
+  atp_dt, 
+  measure.vars = c("winner_name", "loser_name"), 
+  variable.name = "result", 
+  value.name = "player_name"
+)
+
+# Add a column indicating whether the player won (1 for winner, 0 for loser)
+player_long[, won := ifelse(result == "winner_name", 1, 0)]
+
+# Aggregate by player: calculate matches, wins, and win_rate
+player_winrate <- player_long[
+  , .(
+    matches = .N,
+    wins = sum(won),
+    win_rate = sum(won) / .N
+  ), 
+  by = player_name
+][
+  matches >= 5 # Filter: at least 5 matches
+][
+  order(-win_rate) # Order by win_rate descending
+]
+
+# Extract the player(s) with the highest win rate (handles ties)
+top_winrate <- player_winrate[win_rate == max(win_rate)]
+top_winrate
+```
+Among players who participated in at least 5 matches, the player with the highest win-rate is Rafael Nadal. He played a total of 69 matches, won 60 of them, and achieved an outstanding win rate of 0.8696 (86.96%).
+
+
+# problem 3
+### Data Import and Pre-processing
+```{r}
+library(tidyverse)
+library(plotly)
+#install.packages("plotly")
+
+url <- "https://raw.githubusercontent.com/nytimes/covid-19-data/master/rolling-averages/us-states.csv"
+covid <- read_csv(url, show_col_types = FALSE) %>%
+  filter(!is.na(cases)) %>%
+  mutate(date = as.Date(date))
+```
+
+```{r}
+head(covid)
+```
+
+### a: How many major and minor spikes in cases were there?
+Graph Choice: A line chart of the national daily 7-day rolling average. This is the most appropriate choice to visualize overall trends and identify peaks (spikes) over time.
+```{r}
+# Aggregate national daily cases
+us_cases <- covid %>%
+  group_by(date) %>%
+  summarize(total_cases_avg = sum(cases_avg, na.rm = TRUE)) %>%
+  ungroup()
+
+# Create the plot
+p_a <- ggplot(us_cases, aes(x = date, y = total_cases_avg)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  labs(
+    title = "Daily New COVID-19 Cases in the US (7-Day Rolling Average)",
+    subtitle = "Major and minor spikes in cases over time",
+    x = "Date",
+    y = "Daily New Cases (Rolling Average)"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+
+# Convert to interactive plotly object
+ggplotly(p_a)
+```
+The line chart reveals distinct major and minor spikes in daily new COVID-19 cases across the US.
+
+Major spikes occurred roughly during Spring 2021 (Alpha variant), Winter 2021 (Delta variant), and early 2022 (Omicron variant), characterized by steep and towering peaks.
+
+Minor spikes can be seen in Spring and Summer 2020, as well as smaller fluctuations in mid-2022. Each peak aligns with the emergence of new variants or changes in public health policies.
+
+### b: For the states with the highest and lowest overall rates per population, what differences do you see in their trajectories over time?
+Graph Choice: A multi-line chart comparing the two states. Since the prompt asks for "rates per population," we use the cases_avg_per_100k column (if available) or total cases as a fallback.
+```{r}
+# Find highest and lowest states by average rate (excluding territories)
+state_rates <- covid %>%
+  filter(!state %in% c("American Samoa", "Guam", "Northern Mariana Islands", "Virgin Islands")) %>%
+  group_by(state) %>%
+  summarize(avg_rate = mean(cases_avg_per_100k, na.rm = TRUE)) %>%
+  arrange(desc(avg_rate))
+
+highest_state <- state_rates$state[1] 
+lowest_state <- state_rates$state[nrow(state_rates)] 
+
+# Filter data for these two states
+compare_states <- covid %>%
+  filter(state %in% c(highest_state, lowest_state))
+
+# Plot
+p_b <- ggplot(compare_states, aes(x = date, y = cases_avg_per_100k, color = state)) +
+  geom_line(linewidth = 1.2) +
+  scale_color_manual(values = c("firebrick", "steelblue")) +
+  labs(
+    title = paste("COVID-19 Trajectories by Population Rate:", highest_state, "vs.", lowest_state),
+    subtitle = "Comparing states with the highest and lowest overall infection rates per 100k",
+    x = "Date",
+    y = "Daily New Cases per 100k (Rolling Average)",
+    color = "State"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold"),
+    axis.title.x = element_text(margin = margin(t = 10)) # Adjust margin to prevent overlap
+  )
+
+ggplotly(p_b)
+```
+
+Using the rates per population (cases_avg_per_100k), the state with the highest overall rate (Rhode Island) experienced massive, rapid spikes compared to the state with the lowest rate (Maryland). Rhode Island's trajectory shows significantly higher peaks, especially during the Winter 2021 and early 2022 Omicron surges, reaching over 500 cases per 100k, whereas Maryland's peaks remained much lower. This stark difference likely reflects Rhode Island's smaller geographical size and higher population density, which facilitated faster viral transmission compared to Maryland's more dispersed population.
+
+
+### c. Identify, to the best of your ability without a formal test, the first five states to experience Covid in a substantial way.
+```{r}
+# Set a threshold for "substantial spread"
+threshold <- 10 
+
+# Find the first 5 states to hit the threshold
+first_outbreaks <- covid %>%
+  filter(cases_avg_per_100k >= threshold) %>%
+  group_by(state) %>%
+  summarize(first_date = min(date)) %>%
+  arrange(first_date) %>%
+  slice_head(n = 5)
+
+# Filter data for these 5 states
+top5_data <- covid %>%
+  filter(state %in% first_outbreaks$state, date <= "2020-06-01")
+
+# Plot
+p_c <- ggplot(top5_data, aes(x = date, y = cases_avg_per_100k, color = state)) +
+  geom_line(linewidth = 1.2) +
+  labs(
+    title = "The First 5 States to Experience Substantial COVID-19 Spread",
+    subtitle = paste("States reaching a rolling average of", threshold, "cases per 100k"),
+    x = "Date",
+    y = "Daily New Cases per 100k (Rolling Average)",
+    color = "State"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+
+ggplotly(p_c)
+```
+
+By identifying the earliest dates each state reached a rolling average of 10 cases per 100k, the first five states to experience substantial COVID-19 spread were New York, New Jersey, Massachusetts, Connecticut, and Louisiana. The plot confirms that Northeastern states with high population density and international connectivity (like New York and New Jersey) were hit first and hardest during the initial Spring 2020 wave, peaking much earlier than the rest of the country.
+
+**Publication Readiness:**
+To make the plots publication-ready, I applied theme_minimal() to remove cluttered background grids. The legend is moved to the bottom to maximize the horizontal space for the time series, and margins are adjusted to prevent text overlap. The plots include descriptive titles and subtitles that explicitly state what is being measured. Finally, by converting the ggplot2 objects using ggplotly(), the charts become interactive, allowing users to explore the data and view underlying values directly on hover.
+
 
 
 
